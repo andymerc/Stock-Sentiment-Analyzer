@@ -1,11 +1,15 @@
 import tkinter as tk
 from tkinter import messagebox
-from textblob import TextBlob
 import tweepy
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+# Load pre-trained model and tokenizer for RoBERTa
+tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment")
+model = AutoModelForSequenceClassification.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment")
 
 # Function to authenticate and fetch tweets
 def get_tweets(stock_name, num_tweets):
@@ -18,15 +22,16 @@ def get_tweets(stock_name, num_tweets):
     tweets = api.search_tweets(q=stock_name, count=num_tweets, lang='en')
     return tweets
 
-
-# Function to perform sentiment analysis
+# Function to perform sentiment analysis using RoBERTa
 def analyze_sentiment(tweets):
     sentiment_scores = []
     for tweet in tweets:
-        analysis = TextBlob(tweet.text)
-        sentiment_scores.append(analysis.sentiment.polarity)
+        inputs = tokenizer(tweet.text, return_tensors='pt', truncation=True, padding=True, max_length=128)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
+        sentiment_scores.append(probabilities[0, 2].item() - probabilities[0, 0].item())  # Positive - Negative
     return sentiment_scores
-
 
 # Function to fetch historical stock prices
 def get_stock_data(stock_symbol, start_date, end_date):
@@ -39,7 +44,6 @@ def get_stock_data(stock_symbol, start_date, end_date):
     prices = data['chart']['result'][0]['indicators']['quote'][0]['close']
     df = pd.DataFrame({'Time': timestamps, 'Price': prices})
     return df
-
 
 # Main analysis function
 def analyze():
@@ -65,7 +69,6 @@ def analyze():
         plt.show()
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred: {str(e)}")
-
 
 # Tkinter UI Setup
 root = tk.Tk()
