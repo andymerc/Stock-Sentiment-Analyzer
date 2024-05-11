@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox
 import tweepy
 import json
 from collections import Counter
@@ -14,9 +14,10 @@ def authenticate_twitter():
         client = tweepy.Client(bearer_token=token)
     return client
 
-# Function to fetch tweets
-def get_tweets(client, stock_name, num_tweets=100):
-    query = f"{stock_name} -is:retweet"
+# Updated Function to fetch tweets based on stock ticker
+def get_tweets(client, stock_ticker, num_tweets=100):
+    # Expanding the user input into a more detailed query
+    query = f"{stock_ticker} stock OR #{stock_ticker} -is:retweet"
     tweets = client.search_recent_tweets(query=query, max_results=num_tweets, tweet_fields=['text'])
     return [tweet.text for tweet in tweets.data] if tweets.data else []
 
@@ -28,25 +29,27 @@ def clean_tweet(tweet):
     tweet = re.sub(r'\s+', ' ', tweet).strip()
     return tweet
 
-# Function to analyze sentiment, the roBERTa model is already pre-trained and fine-tuned
+# Function to analyze sentiment and print label breakdown
 def analyze_sentiment(tweets):
     sentiment_analyzer = pipeline('sentiment-analysis', model='cardiffnlp/twitter-roberta-base-sentiment')
     results = sentiment_analyzer(tweets)
     label_mapping = {'LABEL_0': 'Negative', 'LABEL_1': 'Neutral', 'LABEL_2': 'Positive'}
     readable_labels = [label_mapping[result['label']] for result in results]
     sentiment_counts = Counter(readable_labels)
+    
+    # Print out the counts of each sentiment label
+    print("Sentiment counts:", sentiment_counts)
+
     overall_sentiment = max(sentiment_counts, key=sentiment_counts.get) if sentiment_counts else "No clear sentiment"
     return overall_sentiment
 
 # Function to perform all tasks when button is clicked
 def on_button_click():
-    progress_bar.start()
-    stock_query = entry.get()
+    stock_ticker = entry.get().upper()  # Convert ticker to uppercase
     client = authenticate_twitter()
-    tweets = get_tweets(client, stock_query)
+    tweets = get_tweets(client, stock_ticker)
     cleaned_tweets = [clean_tweet(tweet) for tweet in tweets]
     sentiment_result = analyze_sentiment(cleaned_tweets)
-    progress_bar.stop()
 
     if sentiment_result == "Positive":
         advice = ("Stock Action: Consider buying more shares or hold your current position.\n"
@@ -66,17 +69,10 @@ def on_button_click():
 # Setting up the Tkinter window
 root = tk.Tk()
 root.title("Stock Sentiment Analyzer")
-
-# Grid layout for better control
-tk.Label(root, text="Enter stock query:").grid(row=0, column=0, padx=10, pady=10)
+tk.Label(root, text="Enter stock ticker:").grid(row=0, column=0, padx=10, pady=10)
 entry = tk.Entry(root, width=50)
 entry.grid(row=0, column=1, padx=10, pady=10)
 tk.Button(root, text="Analyze Sentiment", command=on_button_click).grid(row=1, column=0, columnspan=2, pady=10)
 result_label = tk.Label(root, text="Overall Sentiment: None")
 result_label.grid(row=2, column=0, columnspan=2, pady=10)
-
-# Progress bar
-progress_bar = ttk.Progressbar(root, mode='indeterminate')
-progress_bar.grid(row=3, column=0, columnspan=2, sticky='ew', padx=10)
-
 root.mainloop()
