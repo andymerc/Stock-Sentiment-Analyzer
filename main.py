@@ -1,104 +1,82 @@
 import tkinter as tk
-from tkinter import messagebox
-from textblob import TextBlob
+from tkinter import messagebox, ttk
 import tweepy
-import requests
-import pandas as pd
-import matplotlib.pyplot as plt
+import json
+from collections import Counter
+import re
+from transformers import pipeline
 
+# Function to authenticate Twitter using Tweepy
+def authenticate_twitter():
+    with open("bearer_token.json") as infile:
+        creds = json.load(infile)
+        token = creds["bearer_token"]
+        client = tweepy.Client(bearer_token=token)
+    return client
 
-# Function to authenticate and fetch tweets
-def get_tweets(stock_name, num_tweets):
-    # Authenticate to Twitter (fill in with your credentials)
-    auth = tweepy.OAuthHandler('API_KEY', 'API_SECRET_KEY')
-    auth.set_access_token('ACCESS_TOKEN', 'ACCESS_TOKEN_SECRET')
-    api = tweepy.API(auth)
+# Function to fetch tweets
+def get_tweets(client, stock_name, num_tweets=100):
+    query = f"{stock_name} -is:retweet"
+    tweets = client.search_recent_tweets(query=query, max_results=num_tweets, tweet_fields=['text'])
+    return [tweet.text for tweet in tweets.data] if tweets.data else []
 
-    # Fetch tweets
-    tweets = api.search_tweets(q=stock_name, count=num_tweets, lang='en')
-    return tweets
+# Function to clean tweets using regex
+def clean_tweet(tweet):
+    tweet = re.sub(r'https?://\S+', '', tweet)
+    tweet = re.sub(r'[^\x00-\x7F]+', '', tweet)
+    tweet = re.sub(r'[^\w\s]', '', tweet)
+    tweet = re.sub(r'\s+', ' ', tweet).strip()
+    return tweet
 
-
-# Function to perform sentiment analysis
+# Function to analyze sentiment, the roBERTa model is already pre-trained and fine-tuned
 def analyze_sentiment(tweets):
-    sentiment_scores = []
-    for tweet in tweets:
-        analysis = TextBlob(tweet.text)
-        sentiment_scores.append(analysis.sentiment.polarity)
-    return sentiment_scores
+    sentiment_analyzer = pipeline('sentiment-analysis', model='cardiffnlp/twitter-roberta-base-sentiment')
+    results = sentiment_analyzer(tweets)
+    label_mapping = {'LABEL_0': 'Negative', 'LABEL_1': 'Neutral', 'LABEL_2': 'Positive'}
+    readable_labels = [label_mapping[result['label']] for result in results]
+    sentiment_counts = Counter(readable_labels)
+    overall_sentiment = max(sentiment_counts, key=sentiment_counts.get) if sentiment_counts else "No clear sentiment"
+    return overall_sentiment
 
+# Function to perform all tasks when button is clicked
+def on_button_click():
+    progress_bar.start()
+    stock_query = entry.get()
+    client = authenticate_twitter()
+    tweets = get_tweets(client, stock_query)
+    cleaned_tweets = [clean_tweet(tweet) for tweet in tweets]
+    sentiment_result = analyze_sentiment(cleaned_tweets)
+    progress_bar.stop()
 
-# Function to fetch historical stock prices
-def get_stock_data(stock_symbol, start_date, end_date):
-    # Example with Yahoo Finance API
-    url = f'https://query1.finance.yahoo.com/v8/finance/chart/{stock_symbol}?period1={start_date}&period2={end_date}'
-    response = requests.get(url)
-    data = response.json()
-    # Process JSON into a DataFrame
-    timestamps = data['chart']['result'][0]['timestamp']
-    prices = data['chart']['result'][0]['indicators']['quote'][0]['close']
-    df = pd.DataFrame({'Time': timestamps, 'Price': prices})
-    return df
+    if sentiment_result == "Positive":
+        advice = ("Stock Action: Consider buying more shares or hold your current position.\n"
+                  "Options Strategy: Consider a Covered Call if you own the stock, or a Bull Call Spread to capitalize on expected gains.")
+    elif sentiment_result == "Neutral":
+        advice = ("Stock Action: Hold your position as the market shows no clear direction.\n"
+                  "Options Strategy: Consider an Iron Condor or a Butterfly Spread to profit from this stability.")
+    elif sentiment_result == "Negative":
+        advice = ("Stock Action: Consider selling your shares to avoid losses, or hold with caution.\n"
+                  "Options Strategy: Consider a Bear Put Spread to gain from downward movements or a Protective Put to safeguard your holdings.")
+    else:
+        advice = "Unable to determine a clear move."
 
+    # Display the sentiment and suggested move
+    result_label.config(text=f"Overall Sentiment: {sentiment_result}\nSuggested Move: {advice}")
 
-# Main analysis function
-def analyze():
-    stock_symbol = symbol_entry.get()
-    stock_name = name_entry.get()
-    num_tweets = int(num_tweets_entry.get())
-    start_date = int(pd.Timestamp(start_entry.get()).timestamp())
-    end_date = int(pd.Timestamp(end_entry.get()).timestamp())
-
-    try:
-        # Get data
-        tweets = get_tweets(stock_name, num_tweets)
-        stock_data = get_stock_data(stock_symbol, start_date, end_date)
-
-        # Perform sentiment analysis
-        sentiments = analyze_sentiment(tweets)
-
-        # Aggregate and compare data (implement your own logic)
-        # Example comparison visualization
-        plt.plot(stock_data['Time'], stock_data['Price'], label='Stock Price')
-        plt.plot(range(len(sentiments)), sentiments, label='Tweet Sentiment')
-        plt.legend()
-        plt.show()
-    except Exception as e:
-        messagebox.showerror("Error", f"An error occurred: {str(e)}")
-
-
-# Tkinter UI Setup
+# Setting up the Tkinter window
 root = tk.Tk()
-root.title("Stock Sentiment Analysis")
+root.title("Stock Sentiment Analyzer")
 
-# Stock Symbol
-tk.Label(root, text="Stock Symbol (Ticker):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-symbol_entry = tk.Entry(root)
-symbol_entry.grid(row=0, column=1, padx=5, pady=5)
+# Grid layout for better control
+tk.Label(root, text="Enter stock query:").grid(row=0, column=0, padx=10, pady=10)
+entry = tk.Entry(root, width=50)
+entry.grid(row=0, column=1, padx=10, pady=10)
+tk.Button(root, text="Analyze Sentiment", command=on_button_click).grid(row=1, column=0, columnspan=2, pady=10)
+result_label = tk.Label(root, text="Overall Sentiment: None")
+result_label.grid(row=2, column=0, columnspan=2, pady=10)
 
-# Stock Name for Tweets
-tk.Label(root, text="Stock Name/Hashtags:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-name_entry = tk.Entry(root)
-name_entry.grid(row=1, column=1, padx=5, pady=5)
+# Progress bar
+progress_bar = ttk.Progressbar(root, mode='indeterminate')
+progress_bar.grid(row=3, column=0, columnspan=2, sticky='ew', padx=10)
 
-# Number of Tweets
-tk.Label(root, text="Number of Tweets:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-num_tweets_entry = tk.Entry(root)
-num_tweets_entry.grid(row=2, column=1, padx=5, pady=5)
-
-# Date Range (Start)
-tk.Label(root, text="Start Date (YYYY-MM-DD):").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-start_entry = tk.Entry(root)
-start_entry.grid(row=3, column=1, padx=5, pady=5)
-
-# Date Range (End)
-tk.Label(root, text="End Date (YYYY-MM-DD):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
-end_entry = tk.Entry(root)
-end_entry.grid(row=4, column=1, padx=5, pady=5)
-
-# Analyze Button
-analyze_button = tk.Button(root, text="Analyze", command=analyze)
-analyze_button.grid(row=5, column=0, columnspan=2, pady=10)
-
-# Start the Tkinter event loop
 root.mainloop()
