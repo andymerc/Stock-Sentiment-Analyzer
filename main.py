@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import tweepy
 import json
 from collections import Counter
@@ -28,7 +28,7 @@ def clean_tweet(tweet):
     tweet = re.sub(r'\s+', ' ', tweet).strip()
     return tweet
 
-# Function to analyze sentiment
+# Function to analyze sentiment, the roBERTa model is already pre-trained and fine-tuned
 def analyze_sentiment(tweets):
     sentiment_analyzer = pipeline('sentiment-analysis', model='cardiffnlp/twitter-roberta-base-sentiment')
     results = sentiment_analyzer(tweets)
@@ -40,22 +40,23 @@ def analyze_sentiment(tweets):
 
 # Function to perform all tasks when button is clicked
 def on_button_click():
+    progress_bar.start()
     stock_query = entry.get()
     client = authenticate_twitter()
     tweets = get_tweets(client, stock_query)
     cleaned_tweets = [clean_tweet(tweet) for tweet in tweets]
     sentiment_result = analyze_sentiment(cleaned_tweets)
+    progress_bar.stop()
 
-    # Determine suggested moves based on sentiment
     if sentiment_result == "Positive":
-        advice = ("Consider a Covered Call if you own the stock, or a Bull Call Spread to capitalize on expected gains."
-                  " These strategies can provide profit from a rising market while managing risk.")
+        advice = ("Stock Action: Consider buying more shares or hold your current position.\n"
+                  "Options Strategy: Consider a Covered Call if you own the stock, or a Bull Call Spread to capitalize on expected gains.")
     elif sentiment_result == "Neutral":
-        advice = ("Consider an Iron Condor or a Butterfly Spread. These strategies profit from low market volatility"
-                  " and are best used when little change in the stock price is expected.")
+        advice = ("Stock Action: Hold your position as the market shows no clear direction.\n"
+                  "Options Strategy: Consider an Iron Condor or a Butterfly Spread to profit from this stability.")
     elif sentiment_result == "Negative":
-        advice = ("Consider a Bear Put Spread to gain from downward movements or a Protective Put to safeguard your holdings."
-                  " These can be effective during anticipated declines.")
+        advice = ("Stock Action: Consider selling your shares to avoid losses, or hold with caution.\n"
+                  "Options Strategy: Consider a Bear Put Spread to gain from downward movements or a Protective Put to safeguard your holdings.")
     else:
         advice = "Unable to determine a clear move."
 
@@ -66,11 +67,16 @@ def on_button_click():
 root = tk.Tk()
 root.title("Stock Sentiment Analyzer")
 
-tk.Label(root, text="Enter stock query:").pack(pady=10)
+# Grid layout for better control
+tk.Label(root, text="Enter stock query:").grid(row=0, column=0, padx=10, pady=10)
 entry = tk.Entry(root, width=50)
-entry.pack(pady=10)
-tk.Button(root, text="Analyze Sentiment", command=on_button_click).pack(pady=10)
+entry.grid(row=0, column=1, padx=10, pady=10)
+tk.Button(root, text="Analyze Sentiment", command=on_button_click).grid(row=1, column=0, columnspan=2, pady=10)
 result_label = tk.Label(root, text="Overall Sentiment: None")
-result_label.pack(pady=20)
+result_label.grid(row=2, column=0, columnspan=2, pady=10)
+
+# Progress bar
+progress_bar = ttk.Progressbar(root, mode='indeterminate')
+progress_bar.grid(row=3, column=0, columnspan=2, sticky='ew', padx=10)
 
 root.mainloop()
